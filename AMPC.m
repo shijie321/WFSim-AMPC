@@ -9,119 +9,16 @@ Wp.Turbulencemodel  = 'WFSim3';
 
 %% Init
 WFAMPC_initialize
-%{
-% WFSim settings in WFAMPC
-Animate       = 0;                   % Show 2D flow fields
-conv_eps      = 1e-6;                % Convergence threshold
-max_it_dyn    = 1;                   % Maximum number of iterations for k > 1
-
-options.Projection     = 0;                      % Use projection (true/false)
-options.Linearversion  = 1;                      % Provide linear variant of WFSim (true/false)
-options.exportLinearSol= 1;                      % Calculate linear solution of WFSim
-options.Derivatives    = 1;                      % Compute derivatives
-options.exportPressures= ~options.Projection;    % Calculate pressure fields
-
-[Wp,sol,sys,Power,CT,a,Ueffect,input,B1,B2,bc] = InitWFSim(Wp,options,0);
-
-%% function InitWFSim
-function [Wp,sol,sys,Power,CT,a,Ueffect,input,B1,B2,bc] = InitWFSim(Wp,options,plotMesh)
-
-sys    = struct;
-sol    = struct;
-
-Projection    = options.Projection;
-Linearversion = options.Linearversion;
-
-% Create meshing and import control settings
-[Wp,input]   = meshing(Wp,plotMesh,1); 
-
-% Initial flow fields
-[sol.u,sol.uu] = deal(Wp.site.u_Inf*ones(Wp.mesh.Nx,Wp.mesh.Ny));  
-[sol.v,sol.vv] = deal(Wp.site.v_Inf*ones(Wp.mesh.Nx,Wp.mesh.Ny));  
-[sol.p,sol.pp] = deal(Wp.site.p_init*ones(Wp.mesh.Nx,Wp.mesh.Ny)); 
-
-
-if Linearversion
-    sol.ul = sol.u;
-    sol.vl = sol.v;
-    sol.pl = sol.p;
-    [sol.du,sol.dv,sol.dp]  = deal(zeros(Wp.mesh.Nx,Wp.mesh.Ny));
-end
-
-% Initialize parameters are empty matrices
-[Power,CT,Ueffect,a] = deal(zeros(Wp.turbine.N,Wp.sim.NN)); 
-
-% Compute boundary conditions and matrices B1, B2
-[B1,B2,bc]           = Compute_B1_B2_bc(Wp);
-B2                   = 2*B2;
-
-end
-
-
-% MPC settings in WFAMPC
-options.AMPC.ShowGrad     = 0;                   % Show plot of gradient for each simulation
-options.AMPC.ShowBeta     = 0;                   % Show plot of beta for each simulation
-options.AMPC.method       = 'grad_ratio';        % Control method used
-
-options.AMPC.beta_lim        = [0.1;0.9];        % Limits of input beta
-options.AMPC.dbeta_max       = 0.1;              % Limit on change of beta per time step
-options.AMPC.Np              = 400;              % Prediction Horizon (in time steps)
-options.AMPC.Nc              = 400;              % Control horizon (in time steps)
-options.AMPC.Nr              = 20;               % Receding horizon (in time steps)
-options.AMPC.gamma           = 5e-7;             % For Steepest-descent method
-options.AMPC.imax            = 10;               % Max number of iterations within timestep
-options.AMPC.iter_ls         = 1;
-options.AMPC.pen             = 1e4*ones(1,options.AMPC.Nc);   % penalty on dbeta
-options.AMPC.labda_end       = 100;              % end-point penalty
-options.AMPC.eps_grad        = 0.01;
-options.AMPC.dP_norm         = 0.002;
-options.AMPC.Nrmax           = 30;               % Number of receding horizons
-options.AMPC.counter         = 0;
-%%
-%}
 
 %% Simulate Wind Farm towards Steady State
 index                   = 0;
-%options.startUniform    = 1;    % Start from a uniform flowfield (true) or a steady-state solution (false)
-%max_it                  = 50;  
+options.startUniform    = 1;    % Start from a uniform flowfield (true) or a steady-state solution (false)
+max_it                  = 50;  
 %%
-%RunWFSim;                          % index 1 (go to steady state)
-%{
-index                   = index + 1;
-
-for k=1:options.AMPC.Np
-    it        = 0;
-    eps       = 1e19;
-    epss      = 1e20;
-    
-    while ( eps>conv_eps && it<max_it && eps<epss )
-        it   = it+1;
-        epss = eps;
-        
-        if k>1
-            max_it = max_it_dyn;
-        end
-        
-        [sys,Power(:,k),Ueffect(:,k),a(:,k),CT(:,k)] = ...
-            Make_Ax_b(Wp,sys,sol,input{k},B1,B2,bc,k,options);                      % Create system matrices
-        [sol,sys] = Computesol(sys,input{k},sol,k,it,options);                      % Compute solution
-        [sol,eps] = MapSolution(Wp.mesh.Nx,Wp.mesh.Ny,sol,k,it,options);            % Map solution to field
-        % Normv{k} = norm(vec(sol.v(2:end-1,3:end-1)-sol.vv(2:end-1,3:end-1)));
-        % Normu{k} = norm(vec(sol.u(3:end-1,2:end-1)-sol.uu(3:end-1,2:end-1)));
-        % eps          = sqrt((Normv{k}+Normu{k}))/((Ny-2)*(Nx-2))/2;
-        % where sol.v represents the previous velocity and sol.vv
-        % represents the current velocity.
-        
-    end
-    
-    derivatives = sys.derivatives;
-    x           = sol.x;
-    save((strcat('data_WFAMpc/states/state',num2str(index),'_',num2str(k))),'sys','x');    
-end
-%}
+RunWFSim;                          % index 1 (go to steady state)
 
 %% First forward simulation + Backwards adjoint
-%load((strcat('data_WFAMpc/states/state',num2str(index),'_',num2str(options.AMPC.Nr))))
+load((strcat('data_WFAMpc/states/state',num2str(index),'_',num2str(options.AMPC.Nr))))
 
 options.startUniform    = 1;    % Start from a uniform flowfield (true) or a steady-state solution (false)
 max_it                  = 1;  
@@ -184,12 +81,15 @@ for i = 1:options.AMPC.Nrmax
     load((strcat('data_WFAMpc/states/state',num2str(index),'_',num2str(options.AMPC.Nr))))
     if constant == 0
         beta        = [beta(:,options.AMPC.Nr+1:end) beta(:,end)*ones(1,options.AMPC.Nr)]; %%%%%% Because after one linear search, the first Nr columns have been implemented; in the next line search process, the initial control variable shouldn't include the first Nr time steps. 
-        beta0       = beta(:,options.AMPC.Nr); %%%%%% only one column, not 1:Nr columns           when we solve the finite-horizon optimization problem at each iteration, we need a new initial control variable starting from current time step. 
+        beta0       = beta(:,options.AMPC.Nr); %%%%%% only one column, not 1:Nr columns  when we solve the finite-horizon optimization problem at each iteration, we need a new initial control variable starting from current time step. 
+        Phi = [Phi(:,options.AMPC.Nr+1:end) Phi(:,end)*ones(1,options.AMPC.Nr)];
+        Phi0 = Phi(:,options.AMPC.Nr);
     end
     
     % Write here an update of input.beta
     for kk=1:size(beta,2)
         input{kk}.beta = beta(:,kk);
+        input{kk}.phi = Phi(:,kk);
     end
     %%% at this time, beta is still the greedy control policy
     constant    = 0;
@@ -197,9 +97,10 @@ for i = 1:options.AMPC.Nrmax
     RunWFSim
     
     % Backward adjoint Np -> 1
-    grad        = get_adjoint_Nc(options.AMPC,x,Wp,index);
+    [grad, grad_Phi]        = get_adjoint_Nc(options.AMPC,x,Wp,index);
 %     grad        = gradproj(grad,beta,beta_lim,eps);
     beta_prev   = beta;
+    Phi_prev = Phi;
     Power_prev  = Power;
     ls          = 1;
     check1      = 0;
@@ -220,6 +121,7 @@ for i = 1:options.AMPC.Nrmax
     while ls <= options.AMPC.imax && ~(check1 && check2) && dP(i) > dP_normi(i)
         
         beta_prev2  = beta;
+        Phi_prev2 = Phi;
         Power_prev2 = Power;
         check1      = 0;
         check2      = 0;
@@ -237,11 +139,13 @@ for i = 1:options.AMPC.Nrmax
         
 %         beta    = update_beta_abs(beta_prev,grad,beta_lim,Nc,dbeta_max,alphai);
         beta    = update_beta(beta_prev,grad,alphai,beta0,options);
+        Phi    = update_Phi(Phi_prev,grad_Phi,alphai,Phi0,options);
         %beta(:,1)
         
         % Write here an update of input.beta
         for kk=1:size(beta,2)
             input{kk}.beta = beta(:,kk);
+            input{kk}.phi = Phi(:,kk);
         end
         
         load((strcat('data_WFAMpc/states/state',num2str(indexNr),'_',num2str(options.AMPC.Nr))))
@@ -263,9 +167,11 @@ for i = 1:options.AMPC.Nrmax
     if dP(i) < dP_normi(i)
 %         beta        = beta(:,1)*ones(1,option.AMPC.Np);
         beta(:,1:options.AMPC.Nr)    = beta(:,1)*ones(1,options.AMPC.Nr);
+        Phi(:,1:options.AMPC.Nr)    = Phi(:,1)*ones(1,options.AMPC.Nr);
         % Write here an update of input.beta
         for kk=1:size(beta,2)
             input{kk}.beta = beta(:,kk);
+            input{kk}.phi = Phi(:,kk);
         end
         
         %         dP_normi(i+1)   = dP_norm*2;
@@ -279,9 +185,11 @@ for i = 1:options.AMPC.Nrmax
     elseif P(i,ls) < P(i,ls-1) && P(i,ls-1) > P(i,1)
         disp('after #ls linear search, the power start decreasing');
         beta    = beta_prev2;
+        Phi = Phi_prev2;
         % Write here an update of input.beta
         for kk=1:size(beta,2)
             input{kk}.beta = beta(:,kk);
+            input{kk}.phi = Phi(:,kk);
         end
         
         Power   = Power_prev2;
@@ -290,9 +198,11 @@ for i = 1:options.AMPC.Nrmax
     elseif P(i,ls) < P(i,1)
         disp('after 10 linear search, it cannot find a larger power');
         beta    = beta_prev;
+        Phi = Phi_prev;
         % Write here an update of input.beta
         for kk=1:size(beta,2)
             input{kk}.beta = beta(:,kk);
+            input{kk}.phi = Phi(:,kk);
         end
         
         Power   = Power_prev;
@@ -302,6 +212,8 @@ for i = 1:options.AMPC.Nrmax
     % Save intermediate results
     BETA(:,1+options.AMPC.Nr*(i-1):options.AMPC.Nr*i)   = beta(:,1:options.AMPC.Nr);
     GRAD(:,1+options.AMPC.Nr*(i-1):options.AMPC.Nr*i)   = grad(1:options.AMPC.Nr,:)';
+    PHI(:,1+options.AMPC.Nr*(i-1):options.AMPC.Nr*i)   = Phi(:,1:options.AMPC.Nr);
+    GRAD_PHI(:,1+options.AMPC.Nr*(i-1):options.AMPC.Nr*i)   = grad_Phi(1:options.AMPC.Nr,:)';
     POWER(:,1+options.AMPC.Nr*(i-1):options.AMPC.Nr*i)  = Power(:,1:options.AMPC.Nr);
     POWERTOT(:,i)                                       = sum(Power,2);
     J(i)                                                = sum(POWERTOT(:,i));
